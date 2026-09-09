@@ -4,7 +4,7 @@
 
 ## 特性
 
-- ✅ 完整的 API 支持（发送单条、批量发送、查询状态）
+- ✅ 完整的 API 支持（发送单条、批量发送、查询状态、通道目录）
 - ✅ HMAC-SHA256 签名认证
 - ✅ Context 支持（超时、取消）
 - ✅ 完善的错误处理
@@ -44,7 +44,7 @@ func main() {
         ChannelID:     1,
         SignatureName: "【您的签名】",
         Receiver:      "13800138000",
-        TemplateParams: map[string]interface{}{
+        TemplateParams: map[string]string{
             "code": "123456",
         },
     })
@@ -82,9 +82,9 @@ client := mlievpush.NewClient(
 ```go
 req := &mlievpush.SendMessageRequest{
     ChannelID:     1,                          // 通道ID（必填）
-    SignatureName: "【您的签名】",              // 签名名称（必填）
+    SignatureName: "【您的签名】",              // SignatureNames 中的别名；SignatureRequired=true 时必填
     Receiver:      "13800138000",              // 接收者（必填）
-    TemplateParams: map[string]interface{}{    // 模板参数（可选）
+    TemplateParams: map[string]string{    // 模板参数（可选）
         "code":        "123456",
         "expire_time": "5",
     },
@@ -113,7 +113,7 @@ req := &mlievpush.SendBatchRequest{
         "13800138001",
         "13800138002",
     },
-    TemplateParams: map[string]interface{}{
+    TemplateParams: map[string]string{
         "content":  "系统维护通知",
         "duration": "2小时",
     },
@@ -144,6 +144,57 @@ fmt.Printf("状态: %s\n", data.Status)
 fmt.Printf("消息类型: %s\n", data.MessageType)
 fmt.Printf("接收者: %s\n", data.Receiver)
 fmt.Printf("内容: %s\n", data.Content)
+```
+
+### 通道目录与可视化接入
+
+通过通道目录构建业务系统的通道、模板、变量和签名选择表单。服务端需提供 `GET /api/v1/channels` 与 `GET /api/v1/channels/{id}`。
+
+```go
+// 传 nil 或字段零值时使用服务端默认值：全部类型、第 1 页、每页 20 条。
+page, err := client.ListChannels(ctx, &mlievpush.ListChannelsRequest{
+    Type: mlievpush.MessageTypeSMS,
+    Page: 1,
+    PageSize: 20,
+})
+if err != nil {
+    log.Fatal(err)
+}
+for _, channel := range page.Items {
+    fmt.Println(channel.ID, channel.Name, channel.TemplateName, channel.Readiness.State)
+}
+
+// 使用用户从列表中选择的通道 ID。
+detail, err := client.GetChannel(ctx, 42)
+if err != nil {
+    log.Fatal(err)
+}
+fmt.Println(detail.Readiness.State, detail.Readiness.BlockerCodes)
+if detail.Template != nil {
+    fmt.Println(detail.Template.ContentType, detail.Template.Content, detail.Template.Variables)
+}
+fmt.Println(detail.SignatureRequired, detail.SignatureNames)
+```
+
+- `ListChannelsData` 包含 `Items/Total/Page/Size`；空页保留非 nil 的空 `Items` 切片。每页最多 100 条，非零请求参数交由服务端校验。
+- `ChannelData` 包含 `ID/Name/Type/MessageTemplateID/TemplateName/Readiness`；`ChannelDetailData` 另外包含 `Template/SignatureRequired/SignatureNames`。
+- `ChannelTemplate` 包含 `ID/TemplateName/ContentType/Content/Variables/Description`，表示系统模板，实际投递内容由供应商模板决定。
+- `ChannelReadinessReady` 和 `ChannelReadinessDegraded` 可选择；`ChannelReadinessBlocked` 也是成功的配置查询结果，应在界面置灰，并按需展示 `BlockerCodes`。
+- `Template == nil` 表示模板缺失或被删除；`Template.Variables == nil` 表示变量配置无效，非 nil 的空切片表示没有变量，构建表单时应区分。
+- `TemplateParams` 需包含返回的每个变量名，值均为字符串。`SignatureName` 从 `SignatureNames` 中选择，短信签名和邮件标题均使用此别名；`SignatureRequired` 为 true 时必填，否则可留空。
+- 查询沿用四个认证头和现有限流，不消耗发送配额。查询参数编码到 URL，但不参与 HMAC 签名，GET 正文为空。SDK 原样返回不可用通道，不缓存或自动翻页。
+- 发送时服务端会重新检查配置。目录接口错误保留在 `APIError` 中，错误码为 `400/404/500`；鉴权、限流仍可能使用 HTTP 200 携带非零业务码。
+
+可运行的[通道目录示例](examples/catalog/main.go) 展示“列表 → 详情 → 填写变量 → 选择签名 → 发送”。在业务后端设置凭据：
+
+```bash
+export PUSH_BASE_URL='https://your-domain.com'
+export PUSH_APP_ID='your_app_id'
+export PUSH_APP_SECRET='your_app_secret'
+# 只查询配置。
+go run ./examples/catalog -channel 42
+# 将 ID、签名别名、变量和接收者替换为实际选择。
+go run ./examples/catalog -channel 42 -signature '验证码' -params '{"code":"123456","expire":"5"}' -receiver '13800138000' -send
 ```
 
 ## 错误处理

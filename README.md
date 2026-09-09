@@ -4,7 +4,7 @@ Go SDK for message push service, supporting multiple message types including SMS
 
 ## Features
 
-- ✅ Complete API support (single send, batch send, status query)
+- ✅ Complete API support (single send, batch send, status query, channel catalog)
 - ✅ HMAC-SHA256 signature authentication
 - ✅ Context support (timeout, cancellation)
 - ✅ Comprehensive error handling
@@ -44,7 +44,7 @@ func main() {
         ChannelID:     1,
         SignatureName: "【Your Signature】",
         Receiver:      "13800138000",
-        TemplateParams: map[string]interface{}{
+        TemplateParams: map[string]string{
             "code": "123456",
         },
     })
@@ -82,9 +82,9 @@ Send a message to a single recipient.
 ```go
 req := &mlievpush.SendMessageRequest{
     ChannelID:     1,                          // Channel ID (required)
-    SignatureName: "【Your Signature】",        // Signature name (required)
+    SignatureName: "【Your Signature】",        // Alias from SignatureNames; required when SignatureRequired is true
     Receiver:      "13800138000",              // Recipient (required)
-    TemplateParams: map[string]interface{}{    // Template parameters (optional)
+    TemplateParams: map[string]string{    // Template parameters (optional)
         "code":        "123456",
         "expire_time": "5",
     },
@@ -113,7 +113,7 @@ req := &mlievpush.SendBatchRequest{
         "13800138001",
         "13800138002",
     },
-    TemplateParams: map[string]interface{}{
+    TemplateParams: map[string]string{
         "content":  "System maintenance notification",
         "duration": "2 hours",
     },
@@ -144,6 +144,57 @@ fmt.Printf("Status: %s\n", data.Status)
 fmt.Printf("Message Type: %s\n", data.MessageType)
 fmt.Printf("Recipient: %s\n", data.Receiver)
 fmt.Printf("Content: %s\n", data.Content)
+```
+
+### Channel Catalog
+
+Use the catalog to populate channel, template, variable, and signature controls in your business application. The server must provide `GET /api/v1/channels` and `GET /api/v1/channels/{id}`.
+
+```go
+// nil (or zero-valued fields) uses the server defaults: all types, page 1, size 20.
+page, err := client.ListChannels(ctx, &mlievpush.ListChannelsRequest{
+    Type: mlievpush.MessageTypeSMS,
+    Page: 1,
+    PageSize: 20,
+})
+if err != nil {
+    log.Fatal(err)
+}
+for _, channel := range page.Items {
+    fmt.Println(channel.ID, channel.Name, channel.TemplateName, channel.Readiness.State)
+}
+
+// Use the ID selected by the user from the channel list.
+detail, err := client.GetChannel(ctx, 42)
+if err != nil {
+    log.Fatal(err)
+}
+fmt.Println(detail.Readiness.State, detail.Readiness.BlockerCodes)
+if detail.Template != nil {
+    fmt.Println(detail.Template.ContentType, detail.Template.Content, detail.Template.Variables)
+}
+fmt.Println(detail.SignatureRequired, detail.SignatureNames)
+```
+
+- `ListChannelsData` contains `Items`, `Total`, `Page`, and `Size`. Empty pages retain a non-nil empty `Items` slice. `PageSize` is limited to 100 by the server; nonzero request values are forwarded for server validation.
+- `ChannelData` includes `ID`, `Name`, `Type`, `MessageTemplateID`, `TemplateName`, and `Readiness`. `ChannelDetailData` adds `Template`, `SignatureRequired`, and `SignatureNames`.
+- `ChannelTemplate` includes `ID`, `TemplateName`, `ContentType`, `Content`, `Variables`, and `Description`. It is the system template, not the provider's final message.
+- `ChannelReadinessReady` and `ChannelReadinessDegraded` are selectable; `ChannelReadinessBlocked` is a successful configuration response that your UI should disable. Display its `BlockerCodes` as needed.
+- `Template == nil` means the template is missing/deleted. `Template.Variables == nil` means invalid configuration; a non-nil empty slice means no variables. Preserve that distinction when building a form.
+- Populate every returned variable name in `TemplateParams` with a string value. Select `SignatureName` from `SignatureNames`; SMS signatures and email titles share this alias mechanism. Selection is required when `SignatureRequired` is true, and can be left empty otherwise.
+- Queries use the existing four authentication headers and rate limit, without consuming sending quota. Query parameters are URL-encoded but excluded from the HMAC input; GET has an empty body. The SDK does not filter blocked channels, cache results, or fetch additional pages automatically.
+- The server validates configuration again when sending. Catalog errors use `APIError` with codes `400`, `404`, or `500`; authentication and rate-limit errors can still arrive with HTTP 200 and a nonzero business code.
+
+The runnable [catalog example](examples/catalog/main.go) covers list → detail → form values → signature selection → sending. Configure credentials in your backend environment:
+
+```bash
+export PUSH_BASE_URL='https://your-domain.com'
+export PUSH_APP_ID='your_app_id'
+export PUSH_APP_SECRET='your_app_secret'
+# Read configuration only.
+go run ./examples/catalog -channel 42
+# Replace the ID, alias, variable names, and receiver with your actual selections.
+go run ./examples/catalog -channel 42 -signature '验证码' -params '{"code":"123456","expire":"5"}' -receiver '13800138000' -send
 ```
 
 ## Error Handling

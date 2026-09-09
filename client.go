@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strconv"
 	"time"
 
@@ -59,6 +60,11 @@ func NewClient(baseURL, appID, appSecret string, opts ...ClientOption) *Client {
 
 // doRequest 执行HTTP请求
 func (c *Client) doRequest(ctx context.Context, method, path string, reqData interface{}) (*Response, error) {
+	return c.doRequestWithQuery(ctx, method, path, reqData, nil)
+}
+
+// doRequestWithQuery keeps URL query parameters separate from the signed path and body.
+func (c *Client) doRequestWithQuery(ctx context.Context, method, path string, reqData interface{}, query url.Values) (*Response, error) {
 	// 生成时间戳和随机数
 	timestamp := strconv.FormatInt(time.Now().Unix(), 10)
 	nonce := uuid.New().String()
@@ -85,15 +91,18 @@ func (c *Client) doRequest(ctx context.Context, method, path string, reqData int
 	signature := generateSignature(method, path, params, timestamp, nonce, c.appSecret)
 
 	// 构建HTTP请求
-	url := c.baseURL + path
+	requestURL := c.baseURL + path
 	var body io.Reader
 	if len(bodyBytes) > 0 {
 		body = bytes.NewReader(bodyBytes)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, method, url, body)
+	req, err := http.NewRequestWithContext(ctx, method, requestURL, body)
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
+	}
+	if len(query) > 0 {
+		req.URL.RawQuery = query.Encode()
 	}
 
 	// 设置请求头
@@ -175,5 +184,47 @@ func (c *Client) QueryTask(ctx context.Context, taskID string) (*QueryTaskData, 
 		return nil, fmt.Errorf("unmarshal response data: %w", err)
 	}
 
+	return &data, nil
+}
+
+// ListChannels lists enabled channels, including blocked ones. A nil request or
+// zero-valued fields use the server defaults: all types, page 1, page size 20.
+// Queries do not consume sending quota. Nonzero parameters are validated by the server.
+func (c *Client) ListChannels(ctx context.Context, req *ListChannelsRequest) (*ListChannelsData, error) {
+	query := make(url.Values)
+	if req != nil {
+		if req.Type != "" {
+			query.Set("type", req.Type)
+		}
+		if req.Page != 0 {
+			query.Set("page", strconv.Itoa(req.Page))
+		}
+		if req.PageSize != 0 {
+			query.Set("page_size", strconv.Itoa(req.PageSize))
+		}
+	}
+	resp, err := c.doRequestWithQuery(ctx, http.MethodGet, "/api/v1/channels", nil, query)
+	if err != nil {
+		return nil, err
+	}
+	var data ListChannelsData
+	if err := json.Unmarshal(resp.Data, &data); err != nil {
+		return nil, fmt.Errorf("unmarshal channel list data: %w", err)
+	}
+	return &data, nil
+}
+
+// GetChannel returns the channel's system template, variables, signature aliases,
+// and readiness. A blocked channel is a successful configuration query.
+func (c *Client) GetChannel(ctx context.Context, channelID int) (*ChannelDetailData, error) {
+	path := "/api/v1/channels/" + strconv.Itoa(channelID)
+	resp, err := c.doRequest(ctx, http.MethodGet, path, nil)
+	if err != nil {
+		return nil, err
+	}
+	var data ChannelDetailData
+	if err := json.Unmarshal(resp.Data, &data); err != nil {
+		return nil, fmt.Errorf("unmarshal channel detail data: %w", err)
+	}
 	return &data, nil
 }
