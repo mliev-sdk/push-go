@@ -1,13 +1,97 @@
 package mlievpush
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
 )
+
+func TestSendRequestsIncludeEmailAttachmentsInBodyAndSignature(t *testing.T) {
+	attachment, err := NewEmailAttachment("报告.txt", []byte("hello"))
+	if err != nil {
+		t.Fatalf("NewEmailAttachment() error = %v", err)
+	}
+	requestCount := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestCount++
+		body, readErr := io.ReadAll(r.Body)
+		if readErr != nil {
+			t.Errorf("read request body: %v", readErr)
+		}
+		var params map[string]interface{}
+		if err := json.Unmarshal(body, &params); err != nil {
+			t.Errorf("decode request body: %v", err)
+		}
+		attachments, ok := params["attachments"].([]interface{})
+		if !ok || len(attachments) != 1 {
+			t.Errorf("attachments = %#v, want one item", params["attachments"])
+		} else {
+			item, _ := attachments[0].(map[string]interface{})
+			if item["filename"] != "报告.txt" || item["content_base64"] != "aGVsbG8=" {
+				t.Errorf("attachment body = %#v", item)
+			}
+		}
+		wantSignature := generateSignature(
+			r.Method,
+			r.URL.Path,
+			params,
+			r.Header.Get("X-Timestamp"),
+			r.Header.Get("X-Nonce"),
+			"test_secret",
+		)
+		if got := r.Header.Get("X-Signature"); got != wantSignature {
+			t.Errorf("X-Signature = %q, want %q", got, wantSignature)
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path == "/api/v1/messages/batch" {
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"code": 0,
+				"data": map[string]interface{}{"batch_id": "batch-1"},
+			})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"code": 0,
+			"data": map[string]interface{}{"task_id": "task-1"},
+		})
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL, "test_app", "test_secret")
+	if _, err := client.SendMessage(context.Background(), &SendMessageRequest{
+		ChannelID:   1,
+		Receiver:    "recipient@example.com",
+		Attachments: []EmailAttachment{attachment},
+	}); err != nil {
+		t.Fatalf("SendMessage() error = %v", err)
+	}
+	if _, err := client.SendBatch(context.Background(), &SendBatchRequest{
+		ChannelID:   1,
+		Receivers:   []string{"first@example.com", "second@example.com"},
+		Attachments: []EmailAttachment{attachment},
+	}); err != nil {
+		t.Fatalf("SendBatch() error = %v", err)
+	}
+	if requestCount != 2 {
+		t.Fatalf("request count = %d, want 2", requestCount)
+	}
+}
+
+func TestSendMessageOmitsEmptyAttachments(t *testing.T) {
+	request, err := json.Marshal(SendMessageRequest{ChannelID: 1, Receiver: "recipient@example.com"})
+	if err != nil {
+		t.Fatalf("marshal request: %v", err)
+	}
+	if string(request) == "" || bytes.Contains(request, []byte("attachments")) {
+		t.Fatalf("request unexpectedly contains attachments: %s", request)
+	}
+}
 
 // TestSortParams 测试参数排序功能
 func TestSortParams(t *testing.T) {

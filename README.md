@@ -7,6 +7,7 @@ Go SDK for message push service, supporting multiple message types including SMS
 - ✅ Complete API support (single send, batch send, status query, channel catalog)
 - ✅ HMAC-SHA256 signature authentication
 - ✅ Context support (timeout, cancellation)
+- ✅ Email attachments from files or in-memory content
 - ✅ Comprehensive error handling
 - ✅ Thread-safe
 - ✅ Unit test coverage
@@ -127,6 +128,48 @@ if err != nil {
 fmt.Printf("Batch ID: %s\n", data.BatchID)
 fmt.Printf("Success: %d, Failed: %d\n", data.SuccessCount, data.FailedCount)
 ```
+
+### Email Attachments
+
+Attachments are supported by email channels for both single and batch sends. Build one from a local file:
+
+```go
+attachment, err := mlievpush.NewEmailAttachmentFromFile("./invoice.pdf")
+if err != nil {
+    log.Fatal(err)
+}
+
+data, err := client.SendMessage(ctx, &mlievpush.SendMessageRequest{
+    ChannelID:     12,
+    SignatureName: "invoice-ready", // Email title alias
+    Receiver:      "customer@example.com",
+    TemplateParams: map[string]string{
+        "order_id": "ORDER-1001",
+    },
+    Attachments: []mlievpush.EmailAttachment{attachment},
+})
+```
+
+For generated content, use `NewEmailAttachment`:
+
+```go
+attachment, err := mlievpush.NewEmailAttachment("report.csv", []byte("name,total\nAlice,42\n"))
+if err != nil {
+    log.Fatal(err)
+}
+attachment.ContentType = "text/csv; charset=utf-8" // Optional override
+```
+
+Use the same slice on a batch request; every recipient receives those attachments:
+
+```go
+batchRequest.Attachments = []mlievpush.EmailAttachment{attachment}
+data, err := client.SendBatch(ctx, batchRequest)
+```
+
+You may also construct `EmailAttachment` directly when the content is already Base64 encoded. `ContentBase64` must contain standard RFC 4648 Base64 without a `data:` URL prefix. Batch recipients share the same attachment slice. The server defaults to 5 attachments, 5 MiB per file, and 10 MiB total, but operators can change those limits; the SDK deliberately does not hard-code them. File helpers read the full file into memory.
+
+See the runnable [email attachment example](examples/attachment/main.go).
 
 ### Query Task Status
 

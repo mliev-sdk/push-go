@@ -143,6 +143,11 @@ func (c *Client) doRequestWithQuery(ctx context.Context, method, path string, re
 
 // SendMessage 发送单条消息
 func (c *Client) SendMessage(ctx context.Context, req *SendMessageRequest) (*SendMessageData, error) {
+	if req != nil {
+		if err := validateEmailAttachments(req.Attachments); err != nil {
+			return nil, fmt.Errorf("validate email attachments: %w", err)
+		}
+	}
 	resp, err := c.doRequest(ctx, http.MethodPost, "/api/v1/messages", req)
 	if err != nil {
 		return nil, err
@@ -158,6 +163,11 @@ func (c *Client) SendMessage(ctx context.Context, req *SendMessageRequest) (*Sen
 
 // SendBatch 批量发送消息
 func (c *Client) SendBatch(ctx context.Context, req *SendBatchRequest) (*SendBatchData, error) {
+	if req != nil {
+		if err := validateEmailAttachments(req.Attachments); err != nil {
+			return nil, fmt.Errorf("validate email attachments: %w", err)
+		}
+	}
 	resp, err := c.doRequest(ctx, http.MethodPost, "/api/v1/messages/batch", req)
 	if err != nil {
 		return nil, err

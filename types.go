@@ -2,12 +2,20 @@ package mlievpush
 
 import "encoding/json"
 
+// EmailAttachment 邮件附件。ContentBase64 不包含 data URL 前缀。
+type EmailAttachment struct {
+	Filename      string `json:"filename"`
+	ContentType   string `json:"content_type,omitempty"`
+	ContentBase64 string `json:"content_base64"`
+}
+
 // SendMessageRequest 发送单条消息请求
 type SendMessageRequest struct {
 	ChannelID      int               `json:"channel_id"`                // 通道ID（必填）
 	SignatureName  string            `json:"signature_name"`            // signature_names 中的别名；signature_required=true 时必填
 	Receiver       string            `json:"receiver"`                  // 接收者（必填）
 	TemplateParams map[string]string `json:"template_params,omitempty"` // 模板参数（可选）
+	Attachments    []EmailAttachment `json:"attachments,omitempty"`     // 邮件附件（可选）
 	ScheduledAt    string            `json:"scheduled_at,omitempty"`    // 定时发送时间（ISO 8601格式，可选）
 }
 
@@ -17,6 +25,7 @@ type SendBatchRequest struct {
 	SignatureName  string            `json:"signature_name"`            // signature_names 中的别名；signature_required=true 时必填
 	Receivers      []string          `json:"receivers"`                 // 接收者列表（必填）
 	TemplateParams map[string]string `json:"template_params,omitempty"` // 模板参数（可选）
+	Attachments    []EmailAttachment `json:"attachments,omitempty"`     // 邮件附件，所有接收者共用（可选）
 	ScheduledAt    string            `json:"scheduled_at,omitempty"`    // 定时发送时间（ISO 8601格式，可选）
 }
 

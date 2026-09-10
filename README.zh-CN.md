@@ -7,6 +7,7 @@
 - ✅ 完整的 API 支持（发送单条、批量发送、查询状态、通道目录）
 - ✅ HMAC-SHA256 签名认证
 - ✅ Context 支持（超时、取消）
+- ✅ 从本地文件或内存内容创建邮件附件
 - ✅ 完善的错误处理
 - ✅ 并发安全
 - ✅ 单元测试覆盖
@@ -127,6 +128,48 @@ if err != nil {
 fmt.Printf("批次ID: %s\n", data.BatchID)
 fmt.Printf("成功: %d, 失败: %d\n", data.SuccessCount, data.FailedCount)
 ```
+
+### 邮件附件
+
+邮件通道的单发和批量发送都支持附件。可以直接从本地文件创建：
+
+```go
+attachment, err := mlievpush.NewEmailAttachmentFromFile("./invoice.pdf")
+if err != nil {
+    log.Fatal(err)
+}
+
+data, err := client.SendMessage(ctx, &mlievpush.SendMessageRequest{
+    ChannelID:     12,
+    SignatureName: "invoice-ready", // 邮件标题别名
+    Receiver:      "customer@example.com",
+    TemplateParams: map[string]string{
+        "order_id": "ORDER-1001",
+    },
+    Attachments: []mlievpush.EmailAttachment{attachment},
+})
+```
+
+对于运行时生成的内容，使用 `NewEmailAttachment`：
+
+```go
+attachment, err := mlievpush.NewEmailAttachment("report.csv", []byte("name,total\nAlice,42\n"))
+if err != nil {
+    log.Fatal(err)
+}
+attachment.ContentType = "text/csv; charset=utf-8" // 可选覆盖
+```
+
+批量请求复用同一个附件切片，每个收件人都会收到这些附件：
+
+```go
+batchRequest.Attachments = []mlievpush.EmailAttachment{attachment}
+data, err := client.SendBatch(ctx, batchRequest)
+```
+
+内容已经编码时也可以直接构造 `EmailAttachment`。`ContentBase64` 必须是标准 RFC 4648 Base64，不能包含 `data:` URL 前缀。批量发送的所有收件人共用同一组附件。服务端默认限制为最多 5 个、单个 5 MiB、合计 10 MiB，但部署方可以修改，因此 SDK 不硬编码容量限制。本地文件助手会将整个文件读入内存。
+
+可运行的[邮件附件示例](examples/attachment/main.go)展示了完整调用方式。
 
 ### 查询任务状态
 
