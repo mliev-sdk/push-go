@@ -12,6 +12,16 @@ Go SDK for message push service, supporting multiple message types including SMS
 - ✅ Thread-safe
 - ✅ Unit test coverage
 
+## Message language
+
+Pass a language and country such as `en-US`. Omit the locale to use the channel default. A batch shares one locale. Channel detail exposes signature choices in `locales[locale]`. On acceptance, `resolved_locale` shows which language the service selected, including any configured fallback.
+
+```go
+result, err := client.SendMessage(ctx, &mlievpush.SendMessageRequest{
+    ChannelID: 42, Receiver: "recipient@example.com", Locale: "en-US",
+})
+```
+
 ## Installation
 
 ```bash

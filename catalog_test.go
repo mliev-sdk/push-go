@@ -121,12 +121,16 @@ func TestListChannelsQueryAndSignature(t *testing.T) {
 }
 
 func TestCatalogEmptyListAndNullableDetail(t *testing.T) {
-	for _, scenario := range []string{"empty list", "ready", "degraded", "missing template", "invalid variables", "no variables or signature"} {
+	for _, scenario := range []string{"legacy", "empty list", "ready", "degraded", "missing template", "invalid variables", "no variables or signature"} {
 		t.Run(scenario, func(t *testing.T) {
 			data := catalogFixture(t)
 			template := data["template"].(map[string]interface{})
 			state := ChannelReadinessReady
 			switch scenario {
+			case "legacy":
+				delete(data, "locales")
+				delete(data, "default_locale")
+				delete(data, "locale_fallback_policy")
 			case "degraded":
 				state = ChannelReadinessDegraded
 				data["readiness"] = map[string]interface{}{"state": state, "blocker_codes": []string{"PROVIDER_ACCOUNT_UNAVAILABLE"}}

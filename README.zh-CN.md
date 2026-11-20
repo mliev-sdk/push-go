@@ -12,6 +12,16 @@
 - ✅ 并发安全
 - ✅ 单元测试覆盖
 
+## 发送语言
+
+单发和批发都支持语言地区代码，省略时使用通道默认语言。整批收件人共用一个语言。通道详情的 `locales[locale]` 提供该语言的签名选项，受理结果的 `resolved_locale` 显示回退后实际选定的语言。
+
+```go
+result, err := client.SendMessage(ctx, &mlievpush.SendMessageRequest{
+    ChannelID: 42, Receiver: "recipient@example.com", Locale: "en-US",
+})
+```
+
 ## 安装
 
 ```bash
