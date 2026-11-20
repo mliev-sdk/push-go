@@ -121,12 +121,16 @@ func TestListChannelsQueryAndSignature(t *testing.T) {
 }
 
 func TestCatalogEmptyListAndNullableDetail(t *testing.T) {
-	for _, scenario := range []string{"empty list", "ready", "degraded", "missing template", "invalid variables", "no variables or signature"} {
+	for _, scenario := range []string{"legacy", "empty list", "ready", "degraded", "missing template", "invalid variables", "no variables or signature"} {
 		t.Run(scenario, func(t *testing.T) {
 			data := catalogFixture(t)
 			template := data["template"].(map[string]interface{})
 			state := ChannelReadinessReady
 			switch scenario {
+			case "legacy":
+				delete(data, "locales")
+				delete(data, "default_locale")
+				delete(data, "locale_fallback_policy")
 			case "degraded":
 				state = ChannelReadinessDegraded
 				data["readiness"] = map[string]interface{}{"state": state, "blocker_codes": []string{"PROVIDER_ACCOUNT_UNAVAILABLE"}}
@@ -312,5 +316,20 @@ func TestCatalogSelectionCanBeSent(t *testing.T) {
 	}
 	if requests.Load() != 5 {
 		t.Fatalf("made %d requests, want 5 without implicit pagination or sends", requests.Load())
+	}
+}
+
+func TestPreviewChannelForLocale(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		verifyCatalogRequest(t, r)
+		if r.URL.Query().Get("locale") != "en-GB" {
+			t.Errorf("query %s", r.URL.RawQuery)
+		}
+		writeCatalogResponse(w, map[string]interface{}{"resolved_locale": "en", "signature_names": []string{"generic"}})
+	}))
+	defer server.Close()
+	got, err := NewClient(server.URL, "catalog-test", catalogTestSecret).GetChannelForLocale(context.Background(), 42, "en-GB")
+	if err != nil || got.ResolvedLocale != "en" || !reflect.DeepEqual(got.SignatureNames, []string{"generic"}) {
+		t.Fatalf("%+v %v", got, err)
 	}
 }

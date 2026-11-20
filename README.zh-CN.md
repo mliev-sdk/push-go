@@ -12,6 +12,16 @@
 - ✅ 并发安全
 - ✅ 单元测试覆盖
 
+## 发送语言
+
+通用英文模板绑定 `en`，简繁中文分别使用 `zh-Hans`、`zh-Hant`。请求 `en-GB` 时优先使用英国模板，再尝试通用 `en`。省略语言时使用通道默认语言，整批收件人共用一个语言。用 `client.GetChannelForLocale(ctx, 42, "en-GB")` 可预览实际匹配的语言和签名选项，发送受理后以 `resolved_locale` 为准。
+
+```go
+result, err := client.SendMessage(ctx, &mlievpush.SendMessageRequest{
+    ChannelID: 42, Receiver: "recipient@example.com", Locale: "en",
+})
+```
+
 ## 安装
 
 ```bash

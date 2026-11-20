@@ -27,6 +27,9 @@ func TestSendRequestsIncludeEmailAttachmentsInBodyAndSignature(t *testing.T) {
 		if err := json.Unmarshal(body, &params); err != nil {
 			t.Errorf("decode request body: %v", err)
 		}
+		if params["locale"] != "en-US" {
+			t.Errorf("locale = %v", params["locale"])
+		}
 		attachments, ok := params["attachments"].([]interface{})
 		if !ok || len(attachments) != 1 {
 			t.Errorf("attachments = %#v, want one item", params["attachments"])
@@ -67,6 +70,7 @@ func TestSendRequestsIncludeEmailAttachmentsInBodyAndSignature(t *testing.T) {
 	if _, err := client.SendMessage(context.Background(), &SendMessageRequest{
 		ChannelID:   1,
 		Receiver:    "recipient@example.com",
+		Locale:      "en-US",
 		Attachments: []EmailAttachment{attachment},
 	}); err != nil {
 		t.Fatalf("SendMessage() error = %v", err)
@@ -74,6 +78,7 @@ func TestSendRequestsIncludeEmailAttachmentsInBodyAndSignature(t *testing.T) {
 	if _, err := client.SendBatch(context.Background(), &SendBatchRequest{
 		ChannelID:   1,
 		Receivers:   []string{"first@example.com", "second@example.com"},
+		Locale:      "en-US",
 		Attachments: []EmailAttachment{attachment},
 	}); err != nil {
 		t.Fatalf("SendBatch() error = %v", err)
@@ -88,7 +93,7 @@ func TestSendMessageOmitsEmptyAttachments(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal request: %v", err)
 	}
-	if string(request) == "" || bytes.Contains(request, []byte("attachments")) {
+	if string(request) == "" || bytes.Contains(request, []byte("attachments")) || bytes.Contains(request, []byte("locale")) {
 		t.Fatalf("request unexpectedly contains attachments: %s", request)
 	}
 }
