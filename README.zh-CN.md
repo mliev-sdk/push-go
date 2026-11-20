@@ -14,18 +14,29 @@
 
 ## 发送语言
 
-通用英文模板绑定 `en`，简繁中文分别使用 `zh-Hans`、`zh-Hant`。请求 `en-GB` 时优先使用英国模板，再尝试通用 `en`。省略语言时使用通道默认语言，整批收件人共用一个语言。用 `client.GetChannelForLocale(ctx, 42, "en-GB")` 可预览实际匹配的语言和签名选项，发送受理后以 `resolved_locale` 为准。
+给同一通道绑定一份通用英文模板 `en`，就能接收 `en`、`en-US` 和 `en-GB` 请求。需要英国专用文案时，再绑定 `en-GB`。省略请求语言时，服务端从通道的默认语言开始匹配。
 
-```go
-result, err := client.SendMessage(ctx, &mlievpush.SendMessageRequest{
-    ChannelID: 42, Receiver: "recipient@example.com", Locale: "en",
-})
-```
+| 请求语言 | 优先尝试的模板 |
+| --- | --- |
+| `en-GB` | `en-GB` → `en` |
+| `zh-TW`、`zh-HK`、`zh-MO` | 对应地区 → `zh-Hant` → `zh` |
+| `zh-CN`、`zh-SG` | 对应地区 → `zh-Hans` → `zh` |
+| `zh-Hant` 或 `zh-Hans` | 指定的简繁模板 → `zh` |
+| `zh-Hant-CN` | `zh-Hant-CN` → `zh-Hant` → `zh`（显式指定繁体） |
+| `zh` | 通用 `zh` |
+
+候选模板都不可用时，通道策略 `reject` 返回错误，`use_default` 继续匹配通道默认语言。签名在选定语言组内校验。请用同一个请求标签预览和发送，并从预览结果选择签名。
 
 ## 安装
 
 ```bash
 go get github.com/mliev-sdk/push-go
+```
+
+语言预览需要支持该接口的服务端和 SDK。如果项目仍使用 `v1.2.0`，可用以下命令安装包含该功能的提交。
+
+```bash
+go get github.com/mliev-sdk/push-go@cc9b07c9b6ec
 ```
 
 ## 快速开始
@@ -92,33 +103,36 @@ client := mlievpush.NewClient(
 
 ```go
 req := &mlievpush.SendMessageRequest{
+    // 定时发送时可设置 ScheduledAt，例如 time.Now().Add(time.Hour).UTC().Format(time.RFC3339)。
+    Locale:        "en-GB",
     ChannelID:     1,                          // 通道ID（必填）
-    SignatureName: "【您的签名】",              // SignatureNames 中的别名；SignatureRequired=true 时必填
+    SignatureName: "Notice",                   // SignatureNames 中的别名；SignatureRequired=true 时必填
     Receiver:      "13800138000",              // 接收者（必填）
     TemplateParams: map[string]string{    // 模板参数（可选）
         "code":        "123456",
         "expire_time": "5",
     },
-    ScheduledAt: "2025-11-26T10:00:00Z",      // 定时发送（可选）
 }
 
 data, err := client.SendMessage(ctx, req)
 if err != nil {
-    // 处理错误
+    log.Fatal(err)
 }
 
 fmt.Printf("任务ID: %s\n", data.TaskID)
 fmt.Printf("状态: %s\n", data.Status)
+fmt.Println(data.ResolvedLocale)
 ```
 
 ### 批量发送消息
 
-批量发送消息到多个接收者（共用相同的模板参数）。
+同一批次共用请求语言、模板参数和签名。不同语言的收件人按语言分批提交。
 
 ```go
 req := &mlievpush.SendBatchRequest{
+    Locale:        "en-GB",
     ChannelID:     1,
-    SignatureName: "【您的签名】",
+    SignatureName: "Notice",
     Receivers: []string{
         "13800138000",
         "13800138001",
@@ -132,11 +146,12 @@ req := &mlievpush.SendBatchRequest{
 
 data, err := client.SendBatch(ctx, req)
 if err != nil {
-    // 处理错误
+    log.Fatal(err)
 }
 
 fmt.Printf("批次ID: %s\n", data.BatchID)
 fmt.Printf("成功: %d, 失败: %d\n", data.SuccessCount, data.FailedCount)
+fmt.Println(data.ResolvedLocale)
 ```
 
 ### 邮件附件
@@ -190,14 +205,17 @@ taskID := "550e8400-e29b-41d4-a716-446655440000"
 
 data, err := client.QueryTask(ctx, taskID)
 if err != nil {
-    // 处理错误
+    log.Fatal(err)
 }
 
 fmt.Printf("状态: %s\n", data.Status)
 fmt.Printf("消息类型: %s\n", data.MessageType)
 fmt.Printf("接收者: %s\n", data.Receiver)
 fmt.Printf("内容: %s\n", data.Content)
+fmt.Println(data.RequestedLocale, data.ResolvedLocale)
 ```
+
+例如请求 `en-GB` 命中通用英文时，`RequestedLocale` 是 `en-GB`，`ResolvedLocale` 是 `en`。省略请求语言时前者为空。历史任务的后者也可能为空。定时投递和重试沿用受理时选定的语言。
 
 ### 通道目录与可视化接入
 
@@ -218,7 +236,7 @@ for _, channel := range page.Items {
 }
 
 // 使用用户从列表中选择的通道 ID。
-detail, err := client.GetChannel(ctx, 42)
+detail, err := client.GetChannelForLocale(ctx, 42, "en-GB")
 if err != nil {
     log.Fatal(err)
 }
@@ -226,13 +244,14 @@ fmt.Println(detail.Readiness.State, detail.Readiness.BlockerCodes)
 if detail.Template != nil {
     fmt.Println(detail.Template.ContentType, detail.Template.Content, detail.Template.Variables)
 }
-fmt.Println(detail.SignatureRequired, detail.SignatureNames)
+fmt.Println(detail.ResolvedLocale, detail.SignatureRequired, detail.SignatureNames)
 ```
 
 - `ListChannelsData` 包含 `Items/Total/Page/Size`；空页保留非 nil 的空 `Items` 切片。每页最多 100 条，非零请求参数交由服务端校验。
 - `ChannelData` 包含 `ID/Name/Type/MessageTemplateID/TemplateName/Readiness`；`ChannelDetailData` 另外包含 `Template/SignatureRequired/SignatureNames`。
+- `GetChannel(ctx, id)` 预览默认语言。列表项的 `Readiness` 对应默认语言，`DefaultLocale` 和 `LocaleFallbackPolicy` 给出通道配置。按语言查询时，详情的顶层就绪状态和签名选项对应 `ResolvedLocale`。`Locales` 列出各配置语言组。
 - `ChannelTemplate` 包含 `ID/TemplateName/ContentType/Content/Variables/Description`，表示系统模板，实际投递内容由供应商模板决定。
-- `ChannelReadinessReady` 和 `ChannelReadinessDegraded` 可选择；`ChannelReadinessBlocked` 也是成功的配置查询结果，应在界面置灰，并按需展示 `BlockerCodes`。
+- 对预览的语言，`ready` 和 `degraded` 可发送。返回 `blocked` 时，查看 `BlockerCodes`。仍可预览该通道的其他语言。
 - `Template == nil` 表示模板缺失或被删除；`Template.Variables == nil` 表示变量配置无效，非 nil 的空切片表示没有变量，构建表单时应区分。
 - `TemplateParams` 需包含返回的每个变量名，值均为字符串。`SignatureName` 从 `SignatureNames` 中选择，短信签名和邮件标题均使用此别名；`SignatureRequired` 为 true 时必填，否则可留空。
 - 查询沿用四个认证头和现有限流，不消耗发送配额。查询参数编码到 URL，但不参与 HMAC 签名，GET 正文为空。SDK 原样返回不可用通道，不缓存或自动翻页。
@@ -245,9 +264,9 @@ export PUSH_BASE_URL='https://your-domain.com'
 export PUSH_APP_ID='your_app_id'
 export PUSH_APP_SECRET='your_app_secret'
 # 只查询配置。
-go run ./examples/catalog -channel 42
+go run ./examples/catalog -channel 42 -locale en-GB
 # 将 ID、签名别名、变量和接收者替换为实际选择。
-go run ./examples/catalog -channel 42 -signature '验证码' -params '{"code":"123456","expire":"5"}' -receiver '13800138000' -send
+go run ./examples/catalog -channel 42 -locale en-GB -signature 'Notice' -params '{"code":"123456","expire":"5"}' -receiver '13800138000' -send
 ```
 
 ## 错误处理

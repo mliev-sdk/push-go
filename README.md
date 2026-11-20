@@ -14,18 +14,29 @@ Go SDK for message push service, supporting multiple message types including SMS
 
 ## Message language
 
-Use `en` for a generic English template, `zh-Hans` or `zh-Hant` for Chinese scripts, and `en-GB` for a regional override. An `en-GB` request can use `en` even under the reject policy. Omit the locale to use the channel default. A batch shares one locale. Use `client.GetChannelForLocale(ctx, 42, "en-GB")` to preview the matched language and signature options. Delivery uses the `resolved_locale` recorded at acceptance.
+Bind a generic English template as `en` to handle `en`, `en-US`, and `en-GB` on one channel. Add an `en-GB` binding when you have UK-specific copy. Omitting the request locale starts matching at the channel default.
 
-```go
-result, err := client.SendMessage(ctx, &mlievpush.SendMessageRequest{
-    ChannelID: 42, Receiver: "recipient@example.com", Locale: "en",
-})
-```
+| Requested locale | Templates tried in order |
+| --- | --- |
+| `en-GB` | `en-GB` → `en` |
+| `zh-TW`, `zh-HK`, `zh-MO` | Requested region → `zh-Hant` → `zh` |
+| `zh-CN`, `zh-SG` | Requested region → `zh-Hans` → `zh` |
+| `zh-Hant` or `zh-Hans` | Requested script → `zh` |
+| `zh-Hant-CN` | `zh-Hant-CN` → `zh-Hant` → `zh` (explicit Traditional script) |
+| `zh` | Generic `zh` |
+
+If every candidate is unavailable, the channel's `reject` policy returns an error and `use_default` tries the channel default. The server validates the signature against the selected language group. Preview and send with the same requested locale, and choose the signature from that preview.
 
 ## Installation
 
 ```bash
 go get github.com/mliev-sdk/push-go
+```
+
+Language preview requires support in both the server and SDK. Projects using `v1.2.0` can use the following command to pin a commit that supports the locale API.
+
+```bash
+go get github.com/mliev-sdk/push-go@cc9b07c9b6ec
 ```
 
 ## Quick Start
@@ -92,33 +103,36 @@ Send a message to a single recipient.
 
 ```go
 req := &mlievpush.SendMessageRequest{
+    // For scheduled delivery, set ScheduledAt, e.g. time.Now().Add(time.Hour).UTC().Format(time.RFC3339).
+    Locale:        "en-GB",
     ChannelID:     1,                          // Channel ID (required)
-    SignatureName: "【Your Signature】",        // Alias from SignatureNames; required when SignatureRequired is true
+    SignatureName: "Notice",        // Alias from SignatureNames; required when SignatureRequired is true
     Receiver:      "13800138000",              // Recipient (required)
     TemplateParams: map[string]string{    // Template parameters (optional)
         "code":        "123456",
         "expire_time": "5",
     },
-    ScheduledAt: "2025-11-26T10:00:00Z",      // Scheduled sending (optional)
 }
 
 data, err := client.SendMessage(ctx, req)
 if err != nil {
-    // Handle error
+    log.Fatal(err)
 }
 
 fmt.Printf("Task ID: %s\n", data.TaskID)
 fmt.Printf("Status: %s\n", data.Status)
+fmt.Println(data.ResolvedLocale)
 ```
 
 ### Send Batch Messages
 
-Send messages to multiple recipients (using the same template parameters).
+All recipients in a batch share the requested locale, template parameters, and signature. Group recipients by locale before submitting.
 
 ```go
 req := &mlievpush.SendBatchRequest{
+    Locale:        "en-GB",
     ChannelID:     1,
-    SignatureName: "【Your Signature】",
+    SignatureName: "Notice",
     Receivers: []string{
         "13800138000",
         "13800138001",
@@ -132,11 +146,12 @@ req := &mlievpush.SendBatchRequest{
 
 data, err := client.SendBatch(ctx, req)
 if err != nil {
-    // Handle error
+    log.Fatal(err)
 }
 
 fmt.Printf("Batch ID: %s\n", data.BatchID)
 fmt.Printf("Success: %d, Failed: %d\n", data.SuccessCount, data.FailedCount)
+fmt.Println(data.ResolvedLocale)
 ```
 
 ### Email Attachments
@@ -190,14 +205,17 @@ taskID := "550e8400-e29b-41d4-a716-446655440000"
 
 data, err := client.QueryTask(ctx, taskID)
 if err != nil {
-    // Handle error
+    log.Fatal(err)
 }
 
 fmt.Printf("Status: %s\n", data.Status)
 fmt.Printf("Message Type: %s\n", data.MessageType)
 fmt.Printf("Recipient: %s\n", data.Receiver)
 fmt.Printf("Content: %s\n", data.Content)
+fmt.Println(data.RequestedLocale, data.ResolvedLocale)
 ```
+
+If an `en-GB` request matched generic English, `RequestedLocale` is `en-GB` and `ResolvedLocale` is `en`. Omitting the request locale leaves the former empty. Older tasks may also have an empty resolved locale. Scheduled delivery and retries use the locale selected at acceptance.
 
 ### Channel Catalog
 
@@ -218,7 +236,7 @@ for _, channel := range page.Items {
 }
 
 // Use the ID selected by the user from the channel list.
-detail, err := client.GetChannel(ctx, 42)
+detail, err := client.GetChannelForLocale(ctx, 42, "en-GB")
 if err != nil {
     log.Fatal(err)
 }
@@ -226,13 +244,14 @@ fmt.Println(detail.Readiness.State, detail.Readiness.BlockerCodes)
 if detail.Template != nil {
     fmt.Println(detail.Template.ContentType, detail.Template.Content, detail.Template.Variables)
 }
-fmt.Println(detail.SignatureRequired, detail.SignatureNames)
+fmt.Println(detail.ResolvedLocale, detail.SignatureRequired, detail.SignatureNames)
 ```
 
 - `ListChannelsData` contains `Items`, `Total`, `Page`, and `Size`. Empty pages retain a non-nil empty `Items` slice. `PageSize` is limited to 100 by the server; nonzero request values are forwarded for server validation.
 - `ChannelData` includes `ID`, `Name`, `Type`, `MessageTemplateID`, `TemplateName`, and `Readiness`. `ChannelDetailData` adds `Template`, `SignatureRequired`, and `SignatureNames`.
+- `GetChannel(ctx, id)` previews the default locale. List items expose `DefaultLocale`, `LocaleFallbackPolicy`, and readiness for the default. In a locale preview, top-level readiness and signature options apply to `ResolvedLocale`. `Locales` lists the configured groups.
 - `ChannelTemplate` includes `ID`, `TemplateName`, `ContentType`, `Content`, `Variables`, and `Description`. It is the system template, not the provider's final message.
-- `ChannelReadinessReady` and `ChannelReadinessDegraded` are selectable; `ChannelReadinessBlocked` is a successful configuration response that your UI should disable. Display its `BlockerCodes` as needed.
+- A preview with state `ready` or `degraded` can send. If it is `blocked`, inspect `BlockerCodes` and allow the user to preview another locale on the same channel.
 - `Template == nil` means the template is missing/deleted. `Template.Variables == nil` means invalid configuration; a non-nil empty slice means no variables. Preserve that distinction when building a form.
 - Populate every returned variable name in `TemplateParams` with a string value. Select `SignatureName` from `SignatureNames`; SMS signatures and email titles share this alias mechanism. Selection is required when `SignatureRequired` is true, and can be left empty otherwise.
 - Queries use the existing four authentication headers and rate limit, without consuming sending quota. Query parameters are URL-encoded but excluded from the HMAC input; GET has an empty body. The SDK does not filter blocked channels, cache results, or fetch additional pages automatically.
@@ -245,9 +264,9 @@ export PUSH_BASE_URL='https://your-domain.com'
 export PUSH_APP_ID='your_app_id'
 export PUSH_APP_SECRET='your_app_secret'
 # Read configuration only.
-go run ./examples/catalog -channel 42
+go run ./examples/catalog -channel 42 -locale en-GB
 # Replace the ID, alias, variable names, and receiver with your actual selections.
-go run ./examples/catalog -channel 42 -signature '验证码' -params '{"code":"123456","expire":"5"}' -receiver '13800138000' -send
+go run ./examples/catalog -channel 42 -locale en-GB -signature 'Notice' -params '{"code":"123456","expire":"5"}' -receiver '13800138000' -send
 ```
 
 ## Error Handling

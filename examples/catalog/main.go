@@ -15,6 +15,7 @@ import (
 
 func main() {
 	channelID := flag.Int("channel", 0, "channel ID selected from the list")
+	locale := flag.String("locale", "", "requested language tag, e.g. en-GB (default: channel language)")
 	signature := flag.String("signature", "", "alias selected from signature_names")
 	paramsJSON := flag.String("params", "{}", "template variable values as a JSON object of strings")
 	receiver := flag.String("receiver", "", "recipient for sending")
@@ -38,7 +39,7 @@ func main() {
 		}
 		return
 	}
-	detail, err := client.GetChannel(ctx, *channelID)
+	detail, err := client.GetChannelForLocale(ctx, *channelID, *locale)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -71,7 +72,7 @@ func main() {
 		log.Fatal("provide -receiver for sending")
 	}
 	result, err := client.SendMessage(ctx, &mlievpush.SendMessageRequest{
-		ChannelID: detail.ID, Receiver: *receiver, SignatureName: *signature, TemplateParams: params,
+		ChannelID: detail.ID, Receiver: *receiver, Locale: *locale, SignatureName: *signature, TemplateParams: params,
 	})
 	if err != nil {
 		log.Fatal(err)
