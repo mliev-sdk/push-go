@@ -227,8 +227,17 @@ func (c *Client) ListChannels(ctx context.Context, req *ListChannelsRequest) (*L
 // GetChannel returns the channel's system template, variables, signature aliases,
 // and readiness. A blocked channel is a successful configuration query.
 func (c *Client) GetChannel(ctx context.Context, channelID int) (*ChannelDetailData, error) {
+	return c.GetChannelForLocale(ctx, channelID, "")
+}
+
+// GetChannelForLocale previews the matched template language and its signature options.
+func (c *Client) GetChannelForLocale(ctx context.Context, channelID int, locale string) (*ChannelDetailData, error) {
+	query := url.Values{}
+	if locale != "" {
+		query.Set("locale", locale)
+	}
 	path := "/api/v1/channels/" + strconv.Itoa(channelID)
-	resp, err := c.doRequest(ctx, http.MethodGet, path, nil)
+	resp, err := c.doRequestWithQuery(ctx, http.MethodGet, path, nil, query)
 	if err != nil {
 		return nil, err
 	}

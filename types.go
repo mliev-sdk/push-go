@@ -11,7 +11,7 @@ type EmailAttachment struct {
 
 // SendMessageRequest 发送单条消息请求
 type SendMessageRequest struct {
-	Locale         string            `json:"locale,omitempty"`          // Optional language-country pair, e.g. en-US.
+	Locale         string            `json:"locale,omitempty"`          // Optional language tag, e.g. en, zh-Hant or en-GB.
 	ChannelID      int               `json:"channel_id"`                // 通道ID（必填）
 	SignatureName  string            `json:"signature_name"`            // signature_names 中的别名；signature_required=true 时必填
 	Receiver       string            `json:"receiver"`                  // 接收者（必填）
@@ -22,7 +22,7 @@ type SendMessageRequest struct {
 
 // SendBatchRequest 批量发送消息请求
 type SendBatchRequest struct {
-	Locale         string            `json:"locale,omitempty"`          // Optional language-country pair, e.g. en-US.
+	Locale         string            `json:"locale,omitempty"`          // Optional language tag, e.g. en, zh-Hant or en-GB.
 	ChannelID      int               `json:"channel_id"`                // 通道ID（必填）
 	SignatureName  string            `json:"signature_name"`            // signature_names 中的别名；signature_required=true 时必填
 	Receivers      []string          `json:"receivers"`                 // 接收者列表（必填）
@@ -120,7 +120,8 @@ type ChannelTemplate struct {
 
 // ChannelDetailData contains all configuration needed by a message form.
 type ChannelDetailData struct {
-	Locales map[string]ChannelLocaleOptions `json:"locales,omitempty"`
+	ResolvedLocale string                          `json:"resolved_locale,omitempty"`
+	Locales        map[string]ChannelLocaleOptions `json:"locales,omitempty"`
 	ChannelData
 	Template          *ChannelTemplate `json:"template"` // nil if the template is missing or deleted
 	SignatureRequired bool             `json:"signature_required"`

@@ -318,3 +318,18 @@ func TestCatalogSelectionCanBeSent(t *testing.T) {
 		t.Fatalf("made %d requests, want 5 without implicit pagination or sends", requests.Load())
 	}
 }
+
+func TestPreviewChannelForLocale(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		verifyCatalogRequest(t, r)
+		if r.URL.Query().Get("locale") != "en-GB" {
+			t.Errorf("query %s", r.URL.RawQuery)
+		}
+		writeCatalogResponse(w, map[string]interface{}{"resolved_locale": "en", "signature_names": []string{"generic"}})
+	}))
+	defer server.Close()
+	got, err := NewClient(server.URL, "catalog-test", catalogTestSecret).GetChannelForLocale(context.Background(), 42, "en-GB")
+	if err != nil || got.ResolvedLocale != "en" || !reflect.DeepEqual(got.SignatureNames, []string{"generic"}) {
+		t.Fatalf("%+v %v", got, err)
+	}
+}
